@@ -611,7 +611,8 @@ def compress(doc: pymupdf.Document, level: str) -> pymupdf.Document:
     lossless = pymupdf.open("pdf", doc.tobytes())
     try:
         lossless.subset_fonts()
-    except Exception:
+    # Some fonts can't be subset; keep them whole.
+    except Exception:  # nosec B110
         pass
     candidates.append(lossless.tobytes(**save))
     opts = COMPRESS_LEVELS[level]

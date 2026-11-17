@@ -184,7 +184,8 @@ class ThumbList(QListWidget):
             zoom = self.thumb_width * dpr / max(page.rect.width, page.rect.height * 0.74, 1)
             try:
                 pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
-            except Exception:
+            # A damaged page keeps its blank placeholder.
+            except Exception:  # nosec B112
                 continue
             img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888).copy()
             pm = QPixmap.fromImage(img)
