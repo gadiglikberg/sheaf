@@ -809,7 +809,7 @@ class Canvas(QScrollArea):
                 annot.update()
             self.sdoc.edit("Edit note", fn)
 
-    def fill_widget(self, pw: PageWidget, hit):
+    def fill_widget(self, pw: PageWidget, hit, toggle: bool = True):
         xref, rect, ftype, name = hit
         i = pw.index
         page = pw.page
@@ -817,16 +817,35 @@ class Canvas(QScrollArea):
         if widget is None:
             return
         if ftype in (pymupdf.PDF_WIDGET_TYPE_CHECKBOX, pymupdf.PDF_WIDGET_TYPE_RADIOBUTTON):
-            on = widget.field_value not in (True, "Yes", widget.on_state()) if ftype == pymupdf.PDF_WIDGET_TYPE_CHECKBOX else True
-            self.sdoc.edit("Fill form", lambda d: ops.set_field(d[i], xref, on))
+            is_on = widget.field_value in (True, "Yes", widget.on_state())
+            if toggle:  # a click ticks or unticks it
+                on = not is_on if ftype == pymupdf.PDF_WIDGET_TYPE_CHECKBOX else True
+                self.sdoc.edit("Fill form", lambda d: ops.set_field(d[i], xref, on))
+                return
+            # Reached with Tab: only show focus on it. Space ticks it, Tab moves on, like any form.
+            ed = QCheckBox(pw)
+            ed.setChecked(is_on)
+            ed.setStyleSheet("QCheckBox { background: transparent; border: 2px solid palette(highlight);"
+                             " border-radius: 3px; } QCheckBox::indicator { width: 0; height: 0; }")
+            ed.toggled.connect(lambda v: self.sdoc.edit(
+                "Fill form", lambda d: ops.set_field(d[i], xref, v if ftype == pymupdf.PDF_WIDGET_TYPE_CHECKBOX
+                                                     else True)))
+            ed.setAccessibleName(name or "Check box")
+            ed.setGeometry(pw.to_widget(rect).toRect().adjusted(-3, -3, 3, 3))
+            self.editor, self._editor_commit = ed, None
+            self._editor_field = (i, xref)
+            ed.installEventFilter(self)
+            ed.show()
+            ed.setFocus()
             return
         r = pw.to_widget(rect)
         if ftype in (pymupdf.PDF_WIDGET_TYPE_COMBOBOX, pymupdf.PDF_WIDGET_TYPE_LISTBOX):
             ed = QComboBox(pw)
             values = [v if isinstance(v, str) else v[0] for v in (widget.choice_values or [])]
+            if widget.field_value not in values:
+                values.insert(0, "")  # an empty choice, so opening the list doesn't pick the first option
             ed.addItems(values)
-            if widget.field_value in values:
-                ed.setCurrentText(widget.field_value)
+            ed.setCurrentText(widget.field_value if widget.field_value in values else "")
             get = ed.currentText
         else:
             ed = QLineEdit(pw)
@@ -840,7 +859,7 @@ class Canvas(QScrollArea):
 
         def commit():
             value = get()
-            if value != (widget.field_value or ""):
+            if value != str(widget.field_value or ""):
                 self.sdoc.edit("Fill form", lambda d: ops.set_field(d[i], xref, value))
         self.editor, self._editor_commit = ed, commit
         self._editor_field = (i, xref)
@@ -859,7 +878,7 @@ class Canvas(QScrollArea):
         k = (idx + (-1 if backwards else 1)) % len(fields)
         i, w = fields[k]
         self.go_to(i, w[1])
-        self.fill_widget(self.pages[i], w)
+        self.fill_widget(self.pages[i], w, toggle=False)
 
     def eventFilter(self, obj, e):
         if getattr(self, "editor", None) is None or obj is not self.editor:

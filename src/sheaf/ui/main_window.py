@@ -7,17 +7,17 @@ import uuid
 from functools import partial
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog,
-                               QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
+                               QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
                                QMenu, QMessageBox, QPushButton, QSizePolicy, QStackedWidget, QStatusBar, QTabBar,
                                QToolButton, QVBoxLayout, QWidget)
 
 from .. import __version__
 from ..core import fileio, ops
 from ..core.document import IMAGE_SUFFIXES, OpenCancelled, OpenFailed, SheafDocument
-from . import dialogs
+from . import dialogs, icons
 from .canvas import TOOL_LABELS, ToolState
 from .tab import INSERT_FILTER, PDF_FILTER, DocumentTab
 
@@ -27,7 +27,7 @@ MODE_TOOLS = {
     "view": [],
     "edit": ["select", "text", "edit_text"],
     "annotate": ["select", "highlight", "underline", "strikeout", "note", "rect", "arrow", "ink"],
-    "fill": ["fill", "text", "sign", "check", "cross", "date", "initials"],
+    "fill": ["fill", "text", "check", "cross", "date", "initials", "sign"],
     "organize": [],
     "protect": ["select", "redact"],
 }
@@ -56,6 +56,18 @@ TOOL_TIPS = {
     "redact": "Drag over anything to remove, or click a word. Then Apply redactions.",
 }
 MAX_RECENT = 12
+TAB_TEXT_WIDTH = 220  # pixels; long names are shortened in the middle, the full path is in the tooltip
+TITLE_CHARS = 60
+
+
+def short_name(name: str, limit: int = TITLE_CHARS) -> str:
+    if len(name) <= limit:
+        return name
+    stem, dot, ext = name.rpartition(".")
+    if not dot or len(ext) > 5:
+        stem, ext = name, ""
+    keep = limit - len(ext) - 2
+    return stem[:keep - keep // 3] + "…" + stem[-(keep // 3):] + (f".{ext}" if ext else "")
 
 
 def color_icon(rgb, size=16) -> QIcon:
@@ -68,6 +80,40 @@ def color_icon(rgb, size=16) -> QIcon:
     p.drawRoundedRect(1, 1, size - 2, size - 2, 4, 4)
     p.end()
     return QIcon(pm)
+
+
+class ContextBar(QStackedWidget):
+    """The tool row under the modes. It never forces the window wider: when the window is narrow, buttons drop
+    their labels and show only icons (the name stays in the tooltip)."""
+
+    def __init__(self):
+        super().__init__()
+        self.currentChanged.connect(lambda _: self.fit())
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
+
+    def sizeHint(self) -> QSize:
+        return QSize(0, super().sizeHint().height())
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.fit()
+
+    def fit(self):
+        page = self.currentWidget()
+        if page is None:
+            return
+        buttons = [b for b in page.findChildren(QToolButton)
+                   if not b.icon().isNull() and not b.property("iconOnly")]
+        for compact in (False, True):
+            for b in buttons:
+                b.setToolButtonStyle(Qt.ToolButtonIconOnly if compact else Qt.ToolButtonTextBesideIcon)
+            for w in page.findChildren(QLabel, "quiet"):
+                w.setVisible(not compact)
+            page.layout().invalidate()
+            if page.layout().minimumSize().width() <= self.width():
+                break
 
 
 class StartScreen(QWidget):
@@ -280,6 +326,16 @@ class MainWindow(QMainWindow):
             self.tool_actions[tool] = a
         for tool in ("fill", "check", "cross", "date", "initials"):
             self.tool_actions[tool] = A(TOOL_LABELS[tool], partial(self.set_tool, tool), tip=TOOL_TIPS.get(tool))
+        for tool, a in self.tool_actions.items():
+            a.setIcon(icons.icon(tool))
+        for a, name in ((self.a_zoom_in, "zoom_in"), (self.a_zoom_out, "zoom_out"), (self.a_fit_width, "fit_width"),
+                        (self.a_fit_page, "fit_page"), (self.a_find, "find"), (self.a_print, "print"),
+                        (self.a_comments, "comments"), (self.a_insert, "insert"), (self.a_blank, "blank"),
+                        (self.a_rot_l, "rotate_left"), (self.a_rot_r, "rotate_right"), (self.a_del_pages, "delete"),
+                        (self.a_extract, "extract"), (self.a_split, "split"), (self.a_password, "lock"),
+                        (self.a_unlock, "unlock"), (self.a_apply_redact, "apply"), (self.a_save, "save"),
+                        (self.a_open, "open"), (self.a_signatures, "sign"), (self.a_initials, "initials")):
+            a.setIcon(icons.icon(name))
         self.doc_actions = [self.a_save, self.a_save_as, self.a_print, self.a_close, self.a_copy, self.a_select_all,
                             self.a_delete, self.a_find, self.a_find_next, self.a_find_prev, self.a_zoom_in,
                             self.a_zoom_out, self.a_fit_page, self.a_actual, self.a_fit_width, self.a_goto,
@@ -329,27 +385,37 @@ class MainWindow(QMainWindow):
         h.addAction(self.a_shortcuts)
         h.addAction(self.a_about)
 
-    def _tool_button(self, action: QAction, text: str | None = None) -> QToolButton:
+    def _tool_button(self, action: QAction, text: str | None = None, icon_only: bool = False) -> QToolButton:
         b = QToolButton()
         b.setDefaultAction(action)
         if text:
             # setDefaultAction copies the action's long menu text on every change; keep the short label.
             b.setText(text)
             action.changed.connect(lambda b=b, t=text: b.text() != t and b.setText(t))
-        b.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        if action.icon().isNull():
+            b.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        else:
+            b.setToolButtonStyle(Qt.ToolButtonIconOnly if icon_only else Qt.ToolButtonTextBesideIcon)
+            b.setProperty("iconOnly", icon_only)
+        b.setIconSize(QSize(18, 18))
         b.setAutoRaise(True)
         b.setObjectName("toolButton")
         sc = action.shortcut().toString(QKeySequence.NativeText)
         tip = action.toolTip() or action.text()
         b.setToolTip(f"{tip} ({sc})" if sc and "(" not in tip else tip)
+        b.setAccessibleName(action.text().replace("…", ""))
         return b
 
     def _build_mode_bar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("modeBar")
-        h = QHBoxLayout(bar)
-        h.setContentsMargins(12, 6, 12, 6)
-        h.setSpacing(6)
+        grid = QGridLayout(bar)
+        grid.setContentsMargins(12, 6, 12, 6)
+        switch = QFrame()
+        switch.setObjectName("modeSwitch")
+        h = QHBoxLayout(switch)
+        h.setContentsMargins(3, 3, 3, 3)
+        h.setSpacing(2)
         self.mode_group = QButtonGroup(self)
         self.mode_buttons = {}
         for k, (key, label) in enumerate(MODES):
@@ -363,15 +429,21 @@ class MainWindow(QMainWindow):
             self.mode_group.addButton(b)
             self.mode_buttons[key] = b
             h.addWidget(b)
-        h.addStretch()
-        search = QPushButton("Search commands      Ctrl+K")
+        search = QPushButton("Search commands   Ctrl+K")
+        search.setIcon(icons.icon("find"))
         search.setObjectName("paletteButton")
+        search.setToolTip("Find any command by name (Ctrl+K)")
         search.clicked.connect(self.show_palette)
-        h.addWidget(search)
+        # Three columns with equal stretch keep the mode switch centered whatever the window width.
+        grid.addWidget(QWidget(), 0, 0)
+        grid.addWidget(switch, 0, 1)
+        grid.addWidget(search, 0, 2, Qt.AlignRight)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(2, 1)
         return bar
 
     def _build_context_bar(self) -> QWidget:
-        self.context = QStackedWidget()
+        self.context = ContextBar()
         self.context.setObjectName("contextBar")
         self.tool_buttons: dict[str, list[QToolButton]] = {}
         self.context_pages = {}
@@ -386,7 +458,7 @@ class MainWindow(QMainWindow):
                 b = self._tool_button(act)
                 self.tool_buttons.setdefault(tool, []).append(b)
                 h.addWidget(b)
-            if MODE_TOOLS[key]:
+            if MODE_TOOLS[key] and key != "fill":  # Fill & Sign has only tools, no actions after them
                 h.addWidget(self._sep())
             getattr(self, f"_ctx_{key}")(h)
             h.addStretch()
@@ -401,16 +473,18 @@ class MainWindow(QMainWindow):
         return s
 
     def _ctx_view(self, h):
-        for a, t in ((self.a_zoom_out, "−"), (None, None), (self.a_zoom_in, "+"), (self.a_fit_width, None),
-                     (self.a_fit_page, None)):
+        for a in (self.a_zoom_out, None, self.a_zoom_in):
             if a is None:
                 self.zoom_label = QPushButton("100%")
                 self.zoom_label.setFlat(True)
+                self.zoom_label.setObjectName("zoomLabel")
                 self.zoom_label.setToolTip("Click to type a zoom level")
                 self.zoom_label.clicked.connect(self.ask_zoom)
                 h.addWidget(self.zoom_label)
             else:
-                h.addWidget(self._tool_button(a, t))
+                h.addWidget(self._tool_button(a, icon_only=True))
+        h.addWidget(self._tool_button(self.a_fit_width))
+        h.addWidget(self._tool_button(self.a_fit_page))
         h.addWidget(self._sep())
         h.addWidget(self._tool_button(self.a_find, "Find"))
         h.addWidget(self._tool_button(self.a_print, "Print"))
@@ -477,11 +551,14 @@ class MainWindow(QMainWindow):
         h.addWidget(self._tool_button(self.a_comments, "Comments list"))
 
     def _ctx_fill(self, h):
-        h.addWidget(self._tool_button(self.a_signatures, "Signatures…"))
-        h.addWidget(self._tool_button(self.a_initials, "Initials…"))
-        tip = QLabel("Tab moves between form fields")
-        tip.setObjectName("quiet")
-        h.addWidget(tip)
+        # Sign and Initials each get a small menu arrow for changing what they place, instead of separate
+        # "Signatures…" and "Initials…" buttons that read like duplicates.
+        for tool, act in (("sign", self.a_signatures), ("initials", self.a_initials)):
+            b = self.tool_buttons[tool][-1]
+            menu = QMenu(b)
+            menu.addAction(act)
+            b.setMenu(menu)
+            b.setPopupMode(QToolButton.MenuButtonPopup)
 
     def _ctx_organize(self, h):
         for a, t in ((self.a_insert, "Insert file…"), (self.a_blank, "Blank page"), (None, None),
@@ -490,6 +567,9 @@ class MainWindow(QMainWindow):
             h.addWidget(self._sep() if a is None else self._tool_button(a, t))
         more = QToolButton()
         more.setText("More tools")
+        more.setIcon(icons.icon("more"))
+        more.setIconSize(QSize(18, 18))
+        more.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         more.setPopupMode(QToolButton.InstantPopup)
         more.setAutoRaise(True)
         more.setObjectName("toolButton")
@@ -498,9 +578,6 @@ class MainWindow(QMainWindow):
             menu.addSeparator() if a is None else menu.addAction(a)
         more.setMenu(menu)
         h.addWidget(more)
-        hint = QLabel("Drag pages to reorder · drop files between pages to insert them")
-        hint.setObjectName("quiet")
-        h.addWidget(hint)
         self.legend = QLabel()
         self.legend.setObjectName("quiet")
         self.legend.setToolTip("Which file each page came from")
@@ -553,7 +630,7 @@ class MainWindow(QMainWindow):
         tab.canvas.annotSelected.connect(self._annot_selected)
         self.tabs.append(tab)
         self.docstack.addWidget(tab)
-        idx = self.tabbar.addTab(sdoc.title)
+        idx = self.tabbar.addTab("")
         self.tabbar.setTabToolTip(idx, sdoc.path or sdoc.title)
         self.tabbar.setCurrentIndex(idx)
         self.stack.setCurrentIndex(1)
@@ -858,7 +935,8 @@ class MainWindow(QMainWindow):
                 p.update()
         if self.cur:
             if self.mode == "organize":
-                tip = "Select pages, then rotate, delete or extract them. Double-click a page to open it."
+                tip = ("Drag pages to reorder them, or drop files between pages to insert them. "
+                       "Select pages to rotate, delete or extract them.")
             elif tool == "fill":
                 n = sum(len(self.cur.canvas.widgets_for(i)) for i in range(self.cur.sdoc.page_count))
                 tip = (f"This form has {n} field{'s' if n != 1 else ''}. Press Tab to start at the first one, "
@@ -1061,8 +1139,14 @@ class MainWindow(QMainWindow):
             self.a_redo.setText(f"Redo {sd.redo_label().lower()}" if sd.can_redo() else "Redo")
             self.a_copy.setEnabled(bool(tab.canvas.selection_words))
             self.a_unlock.setEnabled(sd.protection is not None)
+            fm = self.tabbar.fontMetrics()
             for i, t in enumerate(self.tabs):
-                self.tabbar.setTabText(i, t.title)
+                name = fm.elidedText(t.sdoc.title, Qt.ElideMiddle, TAB_TEXT_WIDTH)
+                self.tabbar.setTabText(i, name + ("  •" if t.sdoc.dirty else ""))
+                self.tabbar.setTabToolTip(i, (t.sdoc.save_path or t.sdoc.path or t.sdoc.title)
+                                          + ("\nUnsaved changes" if t.sdoc.dirty else ""))
+            # One document needs no tab strip: its name is in the title bar. Tabs appear with the second.
+            self.tabbar.setVisible(len(self.tabs) > 1)
             self.saved_label.setText("Unsaved changes" if sd.dirty else "All changes saved" if sd.save_path else "")
             self.page_label.setText(f"Page {tab.canvas.current_page() + 1} of {sd.page_count}")
             self.zoom_label.setText(f"{round(tab.canvas.zoom * 100)}%")
@@ -1072,7 +1156,8 @@ class MainWindow(QMainWindow):
             self.protect_label.setText(
                 "This document has a password." if prot and prot.user_pw else
                 "This document has restrictions but no open password." if prot else "No password.")
-            self.setWindowTitle(f"{tab.title} — Sheaf")
+            edited = " (unsaved changes)" if sd.dirty else ""
+            self.setWindowTitle(f"{short_name(sd.title)}{edited} — Sheaf")
         else:
             self.a_undo.setEnabled(False)
             self.a_redo.setEnabled(False)

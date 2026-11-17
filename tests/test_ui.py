@@ -97,6 +97,35 @@ def test_flow_fill_and_sign(win, tmp_path, monkeypatch):
     assert page.get_images()
 
 
+def test_tabbing_through_fields_changes_nothing(win, tmp_path, monkeypatch):
+    """Moving through a form with Tab must not tick checkboxes or pick drop-down options by itself."""
+    win.open_paths([str(make_form(tmp_path / "form.pdf"))])
+    win.set_mode("fill")
+    c = win.cur.canvas
+    for _ in range(4):
+        c.next_field()
+    c.close_editor(True)
+    assert not win.cur.sdoc.dirty
+    c.next_field()  # back to a field; find the checkbox and tick it with Space
+    while c._editor_field[1] != c.widgets_for(0)[1][0]:
+        c.next_field()
+    c.editor.setChecked(True)  # what Space does
+    c.close_editor(True)
+    out = tmp_path / "ticked.pdf"
+    save_as(win, monkeypatch, out)
+    values = {w.field_name: w.field_value for w in pymupdf.open(out)[0].widgets()}
+    assert values["agree"] not in (False, "Off", "", None)
+
+
+def test_long_file_name_is_shortened(win, tmp_path):
+    long = make_pdf(tmp_path / ("A" * 150 + ".pdf"))
+    win.open_paths([str(long)])
+    assert len(win.windowTitle()) < 90 and win.windowTitle().endswith("Sheaf")
+    assert not win.tabbar.isVisible()  # one document: no tab strip
+    win.open_paths([str(make_pdf(tmp_path / "b.pdf"))])
+    assert win.tabbar.isVisible() and len(win.tabbar.tabText(0)) < 60
+
+
 def test_flow_copy_passage(win, tmp_path):
     win.open_paths([str(make_pdf(tmp_path / "t.pdf"))])
     c = win.cur.canvas

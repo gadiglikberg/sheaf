@@ -48,6 +48,20 @@ Severity: 3 = blocks or misleads users, 2 = slows them down, 1 = polish.
 | U12 | Tests and screenshot runs wrote recent-file entries to the real Windows registry | 2 (privacy) | Fixed: settings honor the test location; leftover entries removed |
 | U13 | Highlight quotes in the comments list cut words at the edges | 1 | Fixed, with a test |
 
+## Round 2: first hands-on use
+
+The project owner opened a real downloaded form in Fill & Sign and found the top of the window
+"very unintuitive". Findings from that session:
+
+| # | Finding | Severity | Status |
+| --- | --- | --- | --- |
+| U14 | A long file name (common for email attachments) filled the title bar and the tab, and pushed everything else aside | 3 | Fixed: names are shortened in the middle (full path on hover); the tab strip only appears once a second document is open |
+| U15 | Toolbars were rows of plain words: tools, one-off commands and hints looked the same, so nothing read as a button | 3 | Fixed: every tool has a Windows icon next to its name, with hover and pressed states; the hint text moved to the status bar |
+| U16 | Fill & Sign showed "Initials" and "Initials…", "Sign" and "Signatures…" as separate buttons that read as duplicates | 2 | Fixed: one Initials and one Sign button, each with a small arrow menu to change what it places |
+| U17 | The six mode buttons were separate outlined pills that looked like a second toolbar | 2 | Fixed: one centered switch, with the current mode filled in |
+| U18 | Tabbing through a form ticked every checkbox it passed, and a drop-down with nothing chosen filled in its first option, so the file showed unsaved changes the user never made | 3 | Fixed: Tab only moves between fields (Space ticks a checkbox); drop-downs start blank. Test added |
+| U19 | Organize's toolbar was wider than a laptop screen, forcing the window off the edge | 2 | Fixed: when the window is narrow, toolbars show icons only (names stay in tooltips) |
+
 ## Open issues (not fixed in 1.0)
 
 | # | Issue | Severity | Suggestion |
