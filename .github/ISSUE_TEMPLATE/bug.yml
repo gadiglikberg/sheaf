@@ -1,0 +1,19 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "**Please don't attach PDFs that contain personal data.** A screenshot or a made-up file is best. Security problems go to the Security tab, not here."
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Sheaf version and Windows version
+      placeholder: "Sheaf 1.0.0, Windows 11 23H2"
