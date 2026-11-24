@@ -14,6 +14,10 @@ BANNED_MODULES = {
     "poplib", "imaplib", "telnetlib", "xmlrpc", "websocket", "websockets", "subprocess", "webbrowser",
     "PySide6.QtNetwork", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
 }
+# The one exception: Qt's local pipe between two Sheaf processes on the same computer ("Open with" hands files to
+# the window that is already open). These classes cannot connect to the network. Every other QtNetwork name stays
+# banned, as does importing the module as a whole.
+ALLOWED_FROM = {"PySide6.QtNetwork": {"QLocalServer", "QLocalSocket"}}
 BANNED_NAMES = {"QDesktopServices", "QNetworkAccessManager", "QProcess", "system", "popen", "startfile"}
 
 
@@ -25,6 +29,9 @@ def problems(path: Path) -> list[str]:
         if isinstance(node, ast.Import):
             mods = [a.name for a in node.names]
         elif isinstance(node, ast.ImportFrom) and node.module:
+            allowed = ALLOWED_FROM.get(node.module, set())
+            if allowed and all(a.name in allowed for a in node.names):
+                continue
             mods = [node.module] + [f"{node.module}.{a.name}" for a in node.names]
             out += [f"{path}:{node.lineno}: imports {a.name}" for a in node.names if a.name in BANNED_NAMES]
         for m in mods:

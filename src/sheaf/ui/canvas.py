@@ -33,6 +33,22 @@ def qcolor(rgb) -> QColor:
     return QColor.fromRgbF(*rgb)
 
 
+SIGNATURE_WIDTH = 160.0  # points, as first placed; resize afterwards from the corner handle
+
+
+def upright_png(png: bytes, rotation: int) -> bytes:
+    """Turn a signature image so it reads upright on a page shown with this rotation."""
+    if not rotation % 360:
+        return png
+    from PySide6.QtCore import QBuffer, QIODevice
+    from PySide6.QtGui import QTransform
+    img = QImage.fromData(png).transformed(QTransform().rotate(-rotation))
+    buf = QBuffer()
+    buf.open(QIODevice.WriteOnly)
+    img.save(buf, "PNG")
+    return bytes(buf.data())
+
+
 @dataclass
 class ToolState:
     tool: str = "select"
@@ -57,6 +73,7 @@ class PageWidget(QWidget):
         self._drag: QPointF | None = None
         self._ink: list[QPointF] = []
         self._hover_span: QRectF | None = None
+        self._ghost: QPointF | None = None  # where a signature would land, while the Sign tool is on
         self._move_origin: QRectF | None = None
         self.setAccessibleName(f"Page {index + 1}")
 
@@ -160,6 +177,27 @@ class PageWidget(QWidget):
             elif tool == "arrow":
                 p.setPen(QPen(qcolor(c.state.shape_color), 2))
                 p.drawLine(self._press, self._drag)
+        if self._ghost is not None and self._press is None and c.state.tool == "sign":
+            img = c.signature_image()
+            if img is not None:
+                w = SIGNATURE_WIDTH * c.scale
+                h = w / max(0.5, c.state.signature_aspect)
+                box = QRectF(self._ghost.x() - w / 2, self._ghost.y() - h / 2, w, h)
+                p.setOpacity(0.6)
+                p.drawImage(box, img)
+                p.setOpacity(1.0)
+                p.setPen(QPen(accent, 1, Qt.DashLine))
+                p.setBrush(Qt.NoBrush)
+                p.drawRect(box.adjusted(-4, -4, 4, 4))
+                hint = "Click to place \u00b7 Esc to cancel"
+                fm = p.fontMetrics()
+                tw, th = fm.horizontalAdvance(hint) + 16, fm.height() + 8
+                pill = QRectF(box.center().x() - tw / 2, box.bottom() + 10, tw, th)
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(30, 30, 30, 210))
+                p.drawRoundedRect(pill, th / 2, th / 2)
+                p.setPen(QColor(255, 255, 255))
+                p.drawText(pill, Qt.AlignCenter, hint)
         if self._ink:
             p.setPen(QPen(qcolor(c.state.shape_color), max(1.0, c.state.line_width * self.scale()),
                           Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -182,16 +220,17 @@ class PageWidget(QWidget):
         tool = c.state.tool
         pdf_pt = self.to_pdf(pos)
         self._press, self._drag = pos, pos
-        if tool in ("select", "text"):
-            hit = c.annot_at(self.index, pdf_pt)
-            if hit is not None:
-                if tool == "text" and c.is_text_box(self.index, hit):
-                    self._press = None
-                    c.edit_text_box(self, hit)
-                    return
-                c.select_annot(self.index, hit)
-                self._move_origin = self.to_widget(c.selected_annot_rect)
+        # Click an item to select and drag it. While filling or signing, signatures can be dragged too.
+        hit = c.annot_at(self.index, pdf_pt) if tool in ("select", "text", "fill", "sign") else None
+        if hit is not None and (tool in ("select", "text") or c.is_signature(self.index, hit)):
+            if tool == "text" and c.is_text_box(self.index, hit):
+                self._press = None
+                c.edit_text_box(self, hit)
                 return
+            self._ghost = None
+            c.select_annot(self.index, hit)
+            self._move_origin = self.to_widget(c.selected_annot_rect)
+            return
         c.select_annot(None, None)
         if tool in TEXT_DRAG_TOOLS:
             clicks = c.register_click(self.index, pos)
@@ -210,6 +249,9 @@ class PageWidget(QWidget):
         tool = c.state.tool
         if self._press is None:
             self._update_cursor(pos)
+            if tool == "sign" and c.state.signature:
+                self._ghost = None if c.annot_at(self.index, self.to_pdf(pos)) is not None else pos
+                self.update()
             return
         self._drag = pos
         if self._move_origin is not None:
@@ -236,8 +278,15 @@ class PageWidget(QWidget):
                     r = pymupdf.Rect(c.selected_annot_rect)
                     d0, d1 = self.to_pdf(a), self.to_pdf(b)
                     near_handle = self.to_widget(r).bottomRight()
-                    if (a - near_handle).manhattanLength() < 14 and c.selected_kind() == "FreeText":
+                    on_handle = (a - near_handle).manhattanLength() < 14
+                    if on_handle and c.selected_kind() == "FreeText":
                         r = pymupdf.Rect(r.x0, r.y0, r.x1 + (d1 - d0).x, r.y1 + (d1 - d0).y).normalize()
+                    elif on_handle and c.is_signature(*c.selected_annot):
+                        wr = self.to_widget(r)
+                        s = max(0.15, ((b.x() - wr.left()) / max(1, wr.width()) +
+                                       (b.y() - wr.top()) / max(1, wr.height())) / 2)
+                        corner = QPointF(wr.left() + wr.width() * s, wr.top() + wr.height() * s)
+                        r = pymupdf.Rect(self.to_pdf(wr.topLeft()), self.to_pdf(corner)).normalize()
                     else:
                         r = r + (d1 - d0, d1 - d0)
                     xref = c.selected_annot[1]
@@ -261,6 +310,12 @@ class PageWidget(QWidget):
             return
         self.mousePressEvent(e)
 
+    def leaveEvent(self, e):
+        if self._ghost is not None:
+            self._ghost = None
+            self.update()
+        super().leaveEvent(e)
+
     def contextMenuEvent(self, e):
         self.canvas.context_menu(self, e.pos(), e.globalPos())
 
@@ -281,6 +336,9 @@ class PageWidget(QWidget):
                 self._hover_span = new
                 self.update()
             shape = Qt.IBeamCursor if span else Qt.ArrowCursor
+        elif tool in ("fill", "sign") and (hit := c.annot_at(self.index, pdf_pt)) is not None \
+                and c.is_signature(self.index, hit):
+            shape = Qt.SizeAllCursor
         elif tool in ("text", "note", "check", "cross", "date", "initials", "sign"):
             shape = Qt.IBeamCursor if tool == "text" else Qt.PointingHandCursor
         elif tool in ("rect", "arrow", "ink", "redact"):
@@ -297,6 +355,7 @@ class Canvas(QScrollArea):
     zoomChanged = Signal(float)
     annotSelected = Signal(int, int)  # page, xref (or -1)
     needSignature = Signal()
+    toolFinished = Signal()  # a one-shot tool (Sign) is done; go back to the mode's main tool
 
     def __init__(self, sdoc: SheafDocument, state: ToolState):
         super().__init__()
@@ -535,11 +594,25 @@ class Canvas(QScrollArea):
         return bool(a and a.type[0] == pymupdf.PDF_ANNOT_FREE_TEXT
                     and a.info.get("subject", "").startswith(ops.SHEAF_TEXT_TAG))
 
+    def is_signature(self, i: int, xref: int) -> bool:
+        pg = self.sdoc.doc[i]  # keep the page alive while its annotation is used
+        a = pg.load_annot(xref)
+        return bool(a and ops.is_signature(a))
+
+    def signature_image(self) -> QImage | None:
+        data = self.state.signature
+        if not data:
+            return None
+        if getattr(self, "_sig_cache", (None, None))[0] is not data:
+            self._sig_cache = (data, QImage.fromData(data))
+        return self._sig_cache[1]
+
     def select_annot(self, page: int | None, xref: int | None):
         if page is None or xref is None:
             self.selected_annot, self.selected_annot_rect = None, None
         else:
-            a = self.sdoc.doc[page].load_annot(xref)
+            pg = self.sdoc.doc[page]  # keep the page alive while its annotation is used
+            a = pg.load_annot(xref)
             if a is None:
                 self.selected_annot, self.selected_annot_rect = None, None
             else:
@@ -662,14 +735,19 @@ class Canvas(QScrollArea):
             if not st.signature:
                 self.needSignature.emit()
                 return
-            width = 160.0
+            width = SIGNATURE_WIDTH
             height = width / max(0.5, st.signature_aspect)
             vis_center = pymupdf.Point(a.x() / self.scale, a.y() / self.scale)
             vis = pymupdf.Rect(vis_center.x - width / 2, vis_center.y - height / 2,
                                vis_center.x + width / 2, vis_center.y + height / 2)
             r = (vis * pw.page.derotation_matrix).normalize()
-            sig = st.signature
-            self.sdoc.edit("Sign", lambda d: ops.place_image(d[i], r, sig))
+            sig = upright_png(st.signature, pw.page.rotation)
+            xref = self.sdoc.edit("Sign", lambda d: ops.place_signature(d[i], r, sig))
+            pw._ghost = None
+            self.toolFinished.emit()
+            if xref:
+                self.select_annot(i, xref)
+            self.message.emit("Signed. Drag it to move, drag its corner to resize, or press Delete to remove it.")
         elif tool == "fill":
             hit = self.widget_at(i, pdf_a)
             if hit:
@@ -798,13 +876,15 @@ class Canvas(QScrollArea):
         ed.selectAll()
 
     def edit_note(self, i: int, xref: int):
-        a = self.sdoc.doc[i].load_annot(xref)
+        pg = self.sdoc.doc[i]  # keep the page alive while its annotation is used
+        a = pg.load_annot(xref)
         if a is None:
             return
         text, ok = QInputDialog.getMultiLineText(self, "Edit note", "Note:", a.info.get("content", ""))
         if ok:
             def fn(d):
-                annot = d[i].load_annot(xref)
+                pg = d[i]
+                annot = pg.load_annot(xref)
                 annot.set_info(content=text)
                 annot.update()
             self.sdoc.edit("Edit note", fn)
@@ -907,6 +987,11 @@ class Canvas(QScrollArea):
             self.select_all_on_page()
             return
         if e.key() in (Qt.Key_Delete, Qt.Key_Backspace) and self.delete_selected_annot():
+            return
+        if e.key() == Qt.Key_Escape and self.state.tool == "sign":
+            for pw in self.pages:
+                pw._ghost = None
+            self.toolFinished.emit()
             return
         if e.key() == Qt.Key_Escape:
             self.clear_selection()

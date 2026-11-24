@@ -194,7 +194,7 @@ class StartScreen(QWidget):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, offer_recovery: bool = True):
         super().__init__()
         self.setWindowTitle("Sheaf")
         self.resize(1320, 880)
@@ -243,7 +243,8 @@ class MainWindow(QMainWindow):
         self.recovery_timer = QTimer(self)
         self.recovery_timer.timeout.connect(self.write_recovery)
         self.recovery_timer.start(90_000)
-        QTimer.singleShot(300, self.offer_recovery)
+        if offer_recovery:
+            QTimer.singleShot(300, self.offer_recovery)
 
     # ------------------------------------------------------------ actions and menus
 
@@ -628,6 +629,7 @@ class MainWindow(QMainWindow):
                                                   self.zoom_status.setText(f"{round(z * 100)}%")))
         tab.canvas.selectionChanged.connect(self._update_ui)
         tab.canvas.annotSelected.connect(self._annot_selected)
+        tab.canvas.toolFinished.connect(lambda: self.set_tool(DEFAULT_TOOL.get(self.mode, "select")))
         self.tabs.append(tab)
         self.docstack.addWidget(tab)
         idx = self.tabbar.addTab("")
@@ -710,6 +712,15 @@ class MainWindow(QMainWindow):
                 if sdoc.path:
                     self.add_recent(path)
                 self.settings.setValue("last_folder", str(Path(path).parent))
+
+    def open_from_elsewhere(self, paths: list[str]):
+        """Files sent by a second launch of Sheaf, for example "Open with Sheaf" in Explorer."""
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        if paths:
+            self.open_paths(paths)
 
     def combine_dialog(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Choose files to combine", self._last_folder(), INSERT_FILTER)
@@ -955,7 +966,8 @@ class MainWindow(QMainWindow):
             c.restyle_editor()
         elif c.selected_annot and c.is_text_box(*c.selected_annot):
             page, xref = c.selected_annot
-            annot = tab.sdoc.doc[page].load_annot(xref)
+            pg = tab.sdoc.doc[page]  # keep the page alive while its annotation is used
+            annot = pg.load_annot(xref)
             text, style = ops.text_box_data(annot)
             setattr(style, key, value)
             if key in ("size", "font", "bold", "italic"):
@@ -970,7 +982,8 @@ class MainWindow(QMainWindow):
         tab = self.cur
         if not tab or xref < 0 or not tab.canvas.is_text_box(page, xref):
             return
-        data = ops.text_box_data(tab.sdoc.doc[page].load_annot(xref))
+        pg = tab.sdoc.doc[page]
+        data = ops.text_box_data(pg.load_annot(xref))
         if data:
             self._show_style(data[1])
 
@@ -1006,7 +1019,10 @@ class MainWindow(QMainWindow):
             self.state.signature, self.state.signature_aspect = dlg.chosen
             if self.state.tool != "sign":
                 self.set_tool("sign")
-            self.statusBar().showMessage("Click where the signature should go.", 6000)
+            if self.cur:
+                self.cur.canvas.setFocus()  # so Esc cancels
+            self.statusBar().showMessage("Move the mouse over the page and click where the signature should go. "
+                                         "Esc cancels.", 10000)
         elif not self.state.signature and self.state.tool == "sign":
             self.set_tool("fill")
 
@@ -1166,6 +1182,12 @@ class MainWindow(QMainWindow):
             self.zoom_status.setText("")
             self.setWindowTitle("Sheaf")
         self.mode_buttons[self.mode].setChecked(True)
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape and self.state.tool == "sign":
+            self.set_tool(DEFAULT_TOOL.get(self.mode, "select"))
+            return
+        super().keyPressEvent(e)
 
     def closeEvent(self, e):
         for i in reversed(range(len(self.tabs))):

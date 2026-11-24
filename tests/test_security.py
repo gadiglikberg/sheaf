@@ -22,6 +22,21 @@ def test_no_network_code():
     assert found == []
 
 
+@pytest.mark.parametrize("code, ok", [
+    ("from PySide6.QtNetwork import QLocalServer, QLocalSocket", True),
+    ("from PySide6.QtNetwork import QTcpSocket", False),
+    ("from PySide6.QtNetwork import QLocalSocket, QNetworkAccessManager", False),
+    ("import PySide6.QtNetwork", False),
+    ("from PySide6 import QtNetwork", False),
+])
+def test_network_check_allows_only_the_local_pipe(tmp_path, code, ok):
+    sys.path.insert(0, str(ROOT / "tools"))
+    import check_no_network
+    f = tmp_path / "m.py"
+    f.write_text(code, encoding="utf-8")
+    assert (check_no_network.problems(f) == []) == ok
+
+
 def test_pdf_javascript_is_disabled():
     """MuPDF can run form JavaScript when built with it; this build must not."""
     doc = pymupdf.open()

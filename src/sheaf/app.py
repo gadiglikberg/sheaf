@@ -18,15 +18,25 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationName("Sheaf")
     app.setApplicationVersion(__version__)
 
+    from .core import fileio
+    from .single_instance import Instance
     from .ui.main_window import MainWindow
     from .ui.theme import apply_theme
 
-    win = MainWindow()
+    files = [a for a in argv[1:] if not a.startswith("-")]
+    instance = Instance(fileio.app_data_dir())
+    if not instance.primary and instance.send(files):
+        return 0  # the window that is already open took the files
+    # If another Sheaf is running but didn't answer, open a separate window and leave its recovery copies alone.
+    win = MainWindow(offer_recovery=instance.primary)
+    if instance.primary:
+        instance.listen()
+        instance.filesReceived.connect(win.open_from_elsewhere)
+    win._instance = instance  # keep the lock for the life of the window
     apply_theme(app, win.settings.value("theme", "system", str))
     QGuiApplication.styleHints().colorSchemeChanged.connect(
         lambda *_: apply_theme(app, win.settings.value("theme", "system", str)))
     win.show()
-    files = [a for a in argv[1:] if not a.startswith("-")]
     if files:
         win.open_paths(files)
     return app.exec()

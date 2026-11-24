@@ -61,13 +61,14 @@ The project owner opened a real downloaded form in Fill & Sign and found the top
 | U17 | The six mode buttons were separate outlined pills that looked like a second toolbar | 2 | Fixed: one centered switch, with the current mode filled in |
 | U18 | Tabbing through a form ticked every checkbox it passed, and a drop-down with nothing chosen filled in its first option, so the file showed unsaved changes the user never made | 3 | Fixed: Tab only moves between fields (Space ticks a checkbox); drop-downs start blank. Test added |
 | U19 | Organize's toolbar was wider than a laptop screen, forcing the window off the edge | 2 | Fixed: when the window is narrow, toolbars show icons only (names stay in tooltips) |
+| U20 | After choosing "Use signature", nothing visibly happened: the only instruction was in the status bar, so signing looked broken | 3 | Fixed: the signature follows the mouse with a "Click to place · Esc to cancel" hint; after placing it is selected and can be dragged, resized from its corner or deleted |
+| U21 | Sheaf wasn't offered in Explorer's "Open with" menu for PDFs, and a second launch opened a separate window that misread the first window's recovery copies as a crash | 2 | Fixed: the installer registers Sheaf for "Open with" (without taking over the default); a second launch hands its files to the open window as new tabs |
 
 ## Open issues (not fixed in 1.0)
 
 | # | Issue | Severity | Suggestion |
 | --- | --- | --- | --- |
 | O1 | Links inside PDFs (including a table of contents) can't be clicked | 2 | Follow internal page links only; keep external links off for privacy, or ask first |
-| O2 | A placed signature can be undone but not moved afterwards | 2 | Place signatures as stamp annotations so they can be dragged |
 | O3 | Undo keeps a full copy of the document per step, so each edit on a very large file (100 MB and more) can take a second | 2 | Use MuPDF's built-in journal for undo |
 | O4 | Only Helvetica, Times and Courier are offered for new text | 1 | Offer installed Windows fonts, embedded in the PDF |
 | O5 | No thumbnails-only quick "reverse order" or "sort" for scanned stacks | 1 | Add to More tools |

@@ -251,6 +251,22 @@ def place_image(page: pymupdf.Page, rect: pymupdf.Rect, image_bytes: bytes) -> N
     page.insert_image(rect, stream=image_bytes, keep_proportion=True, rotate=(-page.rotation) % 360)
 
 
+SIGNATURE_TAG = "sheaf-signature"
+
+
+def place_signature(page: pymupdf.Page, rect: pymupdf.Rect, png: bytes) -> int:
+    """Add a signature as an image stamp, so it can still be moved, resized or deleted. The image must already be
+    turned to suit the page's rotation. Returns the annotation's xref."""
+    annot = page.add_stamp_annot(rect, stamp=png)
+    annot.set_info(subject=SIGNATURE_TAG, content="")
+    annot.update()
+    return annot.xref
+
+
+def is_signature(annot: pymupdf.Annot) -> bool:
+    return annot.type[0] == pymupdf.PDF_ANNOT_STAMP and annot.info.get("subject", "") == SIGNATURE_TAG
+
+
 STAMPS = {"check": ("zadb", "4"), "cross": ("zadb", "8")}
 
 
@@ -321,6 +337,8 @@ def comments(doc: pymupdf.Document) -> list[dict]:
                 content = f"\u201c{words[:120]}\u201d" if words else ""
             if a.type[0] == pymupdf.PDF_ANNOT_REDACT:
                 kind, content = "Redaction (not applied)", content
+            if is_signature(a):
+                kind, content = "Signature", ""
             if a.type[0] in (pymupdf.PDF_ANNOT_WIDGET, pymupdf.PDF_ANNOT_LINK, pymupdf.PDF_ANNOT_POPUP):
                 continue
             out.append({"page": page.number, "xref": a.xref, "kind": kind, "text": content.strip(),

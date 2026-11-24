@@ -89,12 +89,71 @@ def test_flow_fill_and_sign(win, tmp_path, monkeypatch):
     win.state.signature, win.state.signature_aspect = image_to_png(img), 3.0
     win.set_tool("sign")
     c.handle_tool_release(pw, "sign", QPointF(300, 400), QPointF(300, 400), False, [])
+    assert win.state.tool == "fill"  # back to filling, with the new signature selected so it can be moved
+    assert c.selected_annot and c.is_signature(*c.selected_annot)
     out = tmp_path / "signed.pdf"
     save_as(win, monkeypatch, out)
     doc = pymupdf.open(out)
     page = doc[0]
     assert {w.field_name: w.field_value for w in page.widgets()}["name"] == "Dana Levi"
-    assert page.get_images()
+    from sheaf.core import ops
+    assert [a for a in page.annots() if ops.is_signature(a)]
+
+
+def _signed_doc(win, tmp_path, rotation=0):
+    from PySide6.QtGui import QImage
+    from sheaf.ui.dialogs import image_to_png
+    src = make_pdf(tmp_path / f"r{rotation}.pdf")
+    d = pymupdf.open(src)
+    d[0].set_rotation(rotation)
+    d.save(tmp_path / f"rot{rotation}.pdf")
+    win.open_paths([str(tmp_path / f"rot{rotation}.pdf")])
+    img = QImage(300, 100, QImage.Format_ARGB32)
+    img.fill(Qt.black)
+    win.state.signature, win.state.signature_aspect = image_to_png(img), 3.0
+    win.set_mode("fill")
+    win.set_tool("sign")
+    c = win.cur.canvas
+    c.handle_tool_release(c.pages[0], "sign", QPointF(200, 200), QPointF(200, 200), False, [])
+    return c
+
+
+def test_signature_upright_on_rotated_page(win, tmp_path):
+    c = _signed_doc(win, tmp_path, rotation=90)
+    page, xref = c.selected_annot
+    pg = c.sdoc.doc[page]
+    r = pg.load_annot(xref).rect
+    assert r.height > r.width * 2  # a wide signature, stored turned so it reads upright on the 90-degree page
+
+
+def test_signature_can_be_moved_and_resized(win, tmp_path):
+    from sheaf.core import ops
+    c = _signed_doc(win, tmp_path)
+    page, xref = c.selected_annot
+    pg = c.sdoc.doc[page]
+    r = pymupdf.Rect(pg.load_annot(xref).rect)
+    bigger = pymupdf.Rect(r.x0 + 50, r.y0 + 80, r.x0 + 50 + r.width * 1.5, r.y0 + 80 + r.height * 1.5)
+    c.sdoc.edit("Move", lambda d: ops.move_annot(d[page], xref, bigger))
+    pg = c.sdoc.doc[page]
+    a = pg.load_annot(xref)
+    assert abs(a.rect.x0 - bigger.x0) < 1 and abs(a.rect.width - bigger.width) < 1
+    pix = c.sdoc.doc[page].get_pixmap(clip=bigger)
+    assert min(pix.samples) < 50  # the signature's ink is drawn at the new place
+
+
+def test_escape_cancels_signing(win, tmp_path):
+    from PySide6.QtGui import QImage
+    from sheaf.ui.dialogs import image_to_png
+    win.open_paths([str(make_pdf(tmp_path / "a.pdf"))])
+    img = QImage(30, 10, QImage.Format_ARGB32)
+    img.fill(Qt.black)
+    win.state.signature = image_to_png(img)
+    win.set_mode("fill")
+    win.set_tool("sign")
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent
+    win.cur.canvas.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_Escape, Qt.NoModifier))
+    assert win.state.tool == "fill"
 
 
 def test_tabbing_through_fields_changes_nothing(win, tmp_path, monkeypatch):
