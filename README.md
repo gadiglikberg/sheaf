@@ -26,8 +26,13 @@ original file unless you explicitly choose to.
 
 ## Install
 
-**Windows app:** download the latest `Sheaf-windows.zip` from
-[Releases](https://github.com/gadiglikberg/sheaf/releases), unzip it and run `Sheaf.exe`.
+**[Download Sheaf-Setup.exe](https://github.com/gadiglikberg/sheaf/releases/latest/download/Sheaf-Setup.exe)** and run it.
+It installs for your Windows account only (no administrator password), adds Sheaf to the Start menu and to
+**Open with** for PDF files, and can be uninstalled from **Settings → Apps**. A portable `Sheaf-windows.zip` is on
+the [Releases](https://github.com/gadiglikberg/sheaf/releases) page too.
+
+Releases aren't code-signed yet, so Windows may say "Windows protected your PC" the first time: click
+**More info → Run anyway**. Each release lists SHA-256 checksums so you can verify the download.
 
 **From source** (Python 3.10 or newer):
 
@@ -74,6 +79,20 @@ python tools/check_no_network.py
 
 Tests generate every PDF they use; please never add real documents to the repository.
 See [CONTRIBUTING.md](CONTRIBUTING.md). Usability and security reviews are in [docs/](docs/).
+
+## Code signing policy
+
+Release files are built only by the [Release workflow](.github/workflows/release.yml) on GitHub Actions, from a
+tagged commit on `main`, after the tests, the static security scan and the no-network check pass. Nothing is built
+or uploaded from a personal computer.
+
+| Role | Members |
+| --- | --- |
+| Committers and reviewers | [gadiglikberg](https://github.com/gadiglikberg) |
+| Approvers (every release) | [gadiglikberg](https://github.com/gadiglikberg) |
+
+Privacy: this program will not transfer any information to other networked systems unless specifically requested
+by the user or the person installing or operating it. In fact it contains no networking code at all.
 
 ## License
 

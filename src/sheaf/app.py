@@ -20,8 +20,11 @@ def main(argv: list[str] | None = None) -> int:
 
     from .core import fileio
     from .single_instance import Instance
+    from .ui.icons import app_icon
     from .ui.main_window import MainWindow
     from .ui.theme import apply_theme
+
+    app.setWindowIcon(app_icon())
 
     files = [a for a in argv[1:] if not a.startswith("-")]
     instance = Instance(fileio.app_data_dir())

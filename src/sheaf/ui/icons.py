@@ -70,3 +70,73 @@ def icon(name: str) -> QIcon:
     if family is None or name not in GLYPHS:
         return QIcon()
     return QIcon(GlyphEngine(family, GLYPHS[name], name in MIRRORED))
+
+
+# ---------------------------------------------------------------- app icon
+
+BRAND = "#17707a"
+
+
+def app_icon_image(size: int) -> "QImage":
+    """Sheaf's icon, drawn in code: a small stack of pages on a teal tile."""
+    from PySide6.QtCore import QPointF, QRectF
+    from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainterPath, QPen
+
+    img = QImage(size, size, QImage.Format_ARGB32)
+    img.fill(Qt.transparent)
+    p = QPainter(img)
+    p.setRenderHint(QPainter.Antialiasing)
+    s = size / 256
+    grad = QLinearGradient(0, 0, 0, size)
+    grad.setColorAt(0, QColor("#1f8a95"))
+    grad.setColorAt(1, QColor("#125a62"))
+    p.setPen(Qt.NoPen)
+    p.setBrush(grad)
+    p.drawRoundedRect(QRectF(8 * s, 8 * s, 240 * s, 240 * s), 52 * s, 52 * s)
+
+    def sheet(angle: float, shade: str):
+        p.save()
+        p.translate(128 * s, 136 * s)
+        p.rotate(angle)
+        w, h, fold = 118 * s, 150 * s, 30 * s
+        path = QPainterPath(QPointF(-w / 2, -h / 2))
+        path.lineTo(w / 2 - fold, -h / 2)
+        path.lineTo(w / 2, -h / 2 + fold)
+        path.lineTo(w / 2, h / 2)
+        path.lineTo(-w / 2, h / 2)
+        path.closeSubpath()
+        p.setBrush(QColor(0, 0, 0, 40))
+        p.drawPath(path.translated(3 * s, 5 * s))
+        p.setBrush(QColor(shade))
+        p.drawPath(path)
+        p.restore()
+        return w, h, fold
+
+    sheet(-14, "#cfe7ea")
+    sheet(-6, "#e8f4f5")
+    w, h, fold = sheet(2, "#ffffff")
+    p.save()
+    p.translate(128 * s, 136 * s)
+    p.rotate(2)
+    fold_path = QPainterPath(QPointF(w / 2 - fold, -h / 2))
+    fold_path.lineTo(w / 2 - fold, -h / 2 + fold)
+    fold_path.lineTo(w / 2, -h / 2 + fold)
+    fold_path.closeSubpath()
+    p.setBrush(QColor("#bcdfe3"))
+    p.drawPath(fold_path)
+    if size >= 32:
+        p.setPen(QPen(QColor(BRAND), max(1.0, 9 * s), Qt.SolidLine, Qt.RoundCap))
+        for k, frac in enumerate((0.62, 0.72, 0.72, 0.5)):
+            y = -h / 2 + 50 * s + k * 24 * s
+            p.drawLine(QPointF(-w / 2 + 20 * s, y), QPointF(-w / 2 + 20 * s + (w - 40 * s) * frac, y))
+    p.restore()
+    p.end()
+    return img
+
+
+def app_icon() -> QIcon:
+    from PySide6.QtGui import QPixmap
+    ic = QIcon()
+    for n in (16, 20, 24, 32, 40, 48, 64, 128, 256):
+        ic.addPixmap(QPixmap.fromImage(app_icon_image(n)))
+    return ic
