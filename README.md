@@ -88,13 +88,14 @@ is Control+Tab. Press F1 (fn+F1) in the app for the full list.
 ## Development
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -c requirements.txt -e ".[dev]"
 python -m pytest
 python tools/check_no_network.py
 ```
 
 Tests generate every PDF they use; please never add real documents to the repository.
 See [CONTRIBUTING.md](CONTRIBUTING.md). Usability and security reviews are in [docs/](docs/).
+How updates, security fixes and releases are handled: [docs/maintenance.md](docs/maintenance.md).
 
 ## Code signing policy
 

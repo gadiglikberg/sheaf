@@ -1,0 +1,10 @@
+# Exact versions that the tests and release builds use (pip install -c requirements.txt -e ".[dev]").
+# Dependabot proposes each new version as a pull request; the tests run on Windows and Mac before it can merge.
+# pyproject.toml keeps loose ranges so Sheaf can still be installed from source alongside other packages.
+PyMuPDF==2.1
+PySide6==6.12.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.10
+pytest==9.2.0
+bandit==1.9.4
+pip-audit==2.10.1
