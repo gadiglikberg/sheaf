@@ -442,9 +442,14 @@ def _match_base14(span: dict) -> tuple[str, bool]:
 
 
 def _system_font() -> str | None:
-    windir = os.environ.get("WINDIR", r"C:\Windows")
-    for name in ("arial.ttf", "segoeui.ttf", "tahoma.ttf"):
-        p = Path(windir) / "Fonts" / name
+    """A font with Hebrew, Arabic, Greek and Cyrillic letters, for edited text the standard PDF fonts can't show."""
+    windir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+    candidates = [windir / n for n in ("arial.ttf", "segoeui.ttf", "tahoma.ttf")] + [
+        Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+        Path("/Library/Fonts/Arial Unicode.ttf"),
+        Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
+    ]
+    for p in candidates:
         if p.exists():
             return str(p)
     return None
@@ -674,6 +679,9 @@ def tessdata_dir() -> str | None:
                  os.environ.get("LOCALAPPDATA", "")):
         if base and (Path(base) / "Tesseract-OCR" / "tessdata").is_dir():
             return str(Path(base) / "Tesseract-OCR" / "tessdata")
+    for d in ("/opt/homebrew/share/tessdata", "/usr/local/share/tessdata", "/opt/local/share/tessdata"):
+        if Path(d).is_dir():  # Homebrew (Apple silicon, Intel) and MacPorts on a Mac
+            return d
     return None
 
 

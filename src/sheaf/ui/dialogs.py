@@ -478,7 +478,8 @@ class SignatureDialog(QDialog):
 
     def _script_font(self) -> QFont:
         fams = set(QFontDatabase.families())
-        for name in ("Segoe Script", "Brush Script MT", "Lucida Handwriting", "Ink Free"):
+        for name in ("Segoe Script", "Brush Script MT", "Lucida Handwriting", "Ink Free", "Snell Roundhand",
+                     "Bradley Hand", "Apple Chancery"):
             if name in fams:
                 f = QFont(name)
                 break

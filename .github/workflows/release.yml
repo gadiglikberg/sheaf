@@ -1,15 +1,20 @@
 name: Release
 
-# A tag like v1.0.0 builds Sheaf, runs every check, and publishes a GitHub release with
-# Sheaf-Setup.exe (installer) and Sheaf-windows.zip (portable). Running it by hand
-# ("Run workflow") builds the same files as a downloadable artifact without publishing anything.
+# A tag like v1.1.0 builds Sheaf for Windows and Mac, runs every check on each system, and publishes a GitHub
+# release with:
+#   Sheaf-Setup.exe                 Windows installer
+#   Sheaf-windows.zip               Windows, portable
+#   Sheaf-mac-apple-silicon.dmg     Mac with an Apple M-series chip
+#   Sheaf-mac-intel.dmg             Mac with an Intel processor
+#   SHA256SUMS.txt
+# Running it by hand ("Run workflow") builds the same files as a downloadable artifact without publishing anything.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows:
@@ -51,25 +56,112 @@ jobs:
         run: |
           Copy-Item LICENSE, README.md dist/Sheaf/
           Compress-Archive -Path dist/Sheaf -DestinationPath dist/Sheaf-windows.zip
-      - name: Checksums
-        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/Sheaf-Setup.exe
+            dist/Sheaf-windows.zip
+          if-no-files-found: error
+
+  mac:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            name: apple-silicon
+          - runner: macos-15-intel
+            name: intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
-          Get-FileHash dist/Sheaf-Setup.exe, dist/Sheaf-windows.zip -Algorithm SHA256 |
-            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
-            Set-Content dist/SHA256SUMS.txt
+          python tools/check_no_network.py
+          python -m bandit -q -r src
+          python -m pytest -q
+      - name: Version
+        run: |
+          v=$(python -c "import sheaf; print(sheaf.__version__)")
+          if [ "${{ github.ref_type }}" = "tag" ] && [ "${{ github.ref_name }}" != "v$v" ]; then
+            echo "Tag ${{ github.ref_name }} does not match the app version $v"; exit 1
+          fi
+      - name: Icon
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python tools/make_icon.py --iconset build/Sheaf.iconset
+          iconutil -c icns build/Sheaf.iconset -o build/Sheaf.icns
+      - name: Build app
+        run: python -m PyInstaller --noconfirm installer/sheaf-mac.spec
+      - name: Sign ad hoc and verify
+        # No Apple Developer certificate: an ad hoc signature keeps the bundle intact and runnable.
+        run: |
+          codesign --force --deep --sign - dist/Sheaf.app
+          codesign --verify --deep --strict --verbose=2 dist/Sheaf.app
+      - name: Smoke test
+        # Start the real app in the runner's desktop session and check it stays up.
+        run: |
+          dist/Sheaf.app/Contents/MacOS/Sheaf &
+          pid=$!
+          sleep 15
+          screencapture -x build/screenshot-${{ matrix.name }}.png || true
+          kill -0 $pid
+          kill $pid
+      - name: Disk image
+        run: |
+          mkdir -p build/dmg
+          ditto dist/Sheaf.app build/dmg/Sheaf.app
+          ln -s /Applications build/dmg/Applications
+          hdiutil create -volname Sheaf -srcfolder build/dmg -ov -format UDZO dist/Sheaf-mac-${{ matrix.name }}.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.name }}
+          path: dist/Sheaf-mac-${{ matrix.name }}.dmg
+          if-no-files-found: error
+      - name: Keep screenshot (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshot-${{ matrix.name }}
+          path: build/screenshot-${{ matrix.name }}.png
+          if-no-files-found: ignore
+
+  release:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: "{windows,mac-*}"
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum Sheaf-Setup.exe Sheaf-windows.zip Sheaf-mac-apple-silicon.dmg Sheaf-mac-intel.dmg > SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Keep build (manual runs)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: Sheaf-${{ steps.version.outputs.value }}
-          path: |
-            dist/Sheaf-Setup.exe
-            dist/Sheaf-windows.zip
-            dist/SHA256SUMS.txt
+          name: Sheaf-all
+          path: dist/*
       - name: Publish release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create "${{ github.ref_name }}" dist/Sheaf-Setup.exe dist/Sheaf-windows.zip dist/SHA256SUMS.txt
+          gh release create "${{ github.ref_name }}" dist/Sheaf-Setup.exe dist/Sheaf-windows.zip
+          dist/Sheaf-mac-apple-silicon.dmg dist/Sheaf-mac-intel.dmg dist/SHA256SUMS.txt
           --title "Sheaf ${{ github.ref_name }}" --notes-file .github/release-notes.md

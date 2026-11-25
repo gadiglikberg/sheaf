@@ -17,9 +17,12 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QColorDialog, QComboB
 from .. import __version__
 from ..core import fileio, ops
 from ..core.document import IMAGE_SUFFIXES, OpenCancelled, OpenFailed, SheafDocument
+from ..osinfo import IS_MAC, MOD, SYSTEM, keys
 from . import dialogs, icons
 from .canvas import TOOL_LABELS, ToolState
 from .tab import INSERT_FILTER, PDF_FILTER, DocumentTab
+
+GOTO_KEY = "Ctrl+Alt+G" if IS_MAC else "Ctrl+G"
 
 MODES = [("view", "View"), ("edit", "Edit"), ("annotate", "Annotate"), ("fill", "Fill & Sign"),
          ("organize", "Organize"), ("protect", "Protect")]
@@ -276,8 +279,11 @@ class MainWindow(QMainWindow):
         self.a_delete = A("Delete", self.delete_selection, None,
                           tip="Delete the selected comment or text box, or the selected pages in Organize")
         self.a_find = A("Find…", self.focus_search, QKeySequence.Find)
-        self.a_find_next = A("Find next", lambda: self.cur and self.cur.search.step(1), QKeySequence("F3"))
-        self.a_find_prev = A("Find previous", lambda: self.cur and self.cur.search.step(-1), QKeySequence("Shift+F3"))
+        # On a Mac, Cmd+G is "find next" everywhere, so "go to page" moves to Option+Cmd+G there.
+        self.a_find_next = A("Find next", lambda: self.cur and self.cur.search.step(1),
+                             [QKeySequence("F3")] + ([QKeySequence("Ctrl+G")] if IS_MAC else []))
+        self.a_find_prev = A("Find previous", lambda: self.cur and self.cur.search.step(-1),
+                             [QKeySequence("Shift+F3")] + ([QKeySequence("Ctrl+Shift+G")] if IS_MAC else []))
         self.a_zoom_in = A("Zoom in", lambda: self.cur and self.cur.canvas.zoom_step(1),
                            [QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
         self.a_zoom_out = A("Zoom out", lambda: self.cur and self.cur.canvas.zoom_step(-1), QKeySequence("Ctrl+-"))
@@ -287,9 +293,11 @@ class MainWindow(QMainWindow):
         self.a_sidebar = A("Show page sidebar", self.toggle_sidebar, QKeySequence("F4"), checkable=True)
         self.a_sidebar.setChecked(True)
         self.a_comments = A("Show comments", self.toggle_comments, QKeySequence("Ctrl+Shift+C"), checkable=True)
-        self.a_goto = A("Go to page…", self.goto_page, QKeySequence("Ctrl+G"))
-        self.a_next_tab = A("Next document", lambda: self._cycle_tab(1), QKeySequence("Ctrl+Tab"))
-        self.a_prev_tab = A("Previous document", lambda: self._cycle_tab(-1), QKeySequence("Ctrl+Shift+Tab"))
+        self.a_goto = A("Go to page…", self.goto_page, QKeySequence(GOTO_KEY))
+        # Cmd+Tab switches apps on a Mac; there the Control key ("Meta" to Qt) moves between documents.
+        tab_mod = "Meta" if IS_MAC else "Ctrl"
+        self.a_next_tab = A("Next document", lambda: self._cycle_tab(1), QKeySequence(f"{tab_mod}+Tab"))
+        self.a_prev_tab = A("Previous document", lambda: self._cycle_tab(-1), QKeySequence(f"{tab_mod}+Shift+Tab"))
         self.a_palette = A("Search commands…", self.show_palette, QKeySequence("Ctrl+K"))
 
         self.a_rot_r = A("Rotate pages right", lambda: self.cur and self.cur.rotate(90), QKeySequence("Ctrl+Shift+R"),
@@ -365,7 +373,7 @@ class MainWindow(QMainWindow):
             vm.addSeparator() if a is None else vm.addAction(a)
         theme = vm.addMenu("Theme")
         group = QActionGroup(self)
-        for key, label in (("system", "Follow Windows"), ("light", "Light"), ("dark", "Dark")):
+        for key, label in (("system", f"Follow {SYSTEM}"), ("light", "Light"), ("dark", "Dark")):
             a = theme.addAction(label)
             a.setCheckable(True)
             a.setChecked(self.settings.value("theme", "system") == key)
@@ -425,15 +433,15 @@ class MainWindow(QMainWindow):
             b.setCheckable(True)
             b.setObjectName("modeButton")
             b.setAccessibleName(f"{label} mode")
-            b.setToolTip(f"{label} (Ctrl+{k + 3})")
+            b.setToolTip(f"{label} ({keys(f'Ctrl+{k + 3}')})")
             b.clicked.connect(partial(self.set_mode, key))
             self.mode_group.addButton(b)
             self.mode_buttons[key] = b
             h.addWidget(b)
-        search = QPushButton("Search commands   Ctrl+K")
+        search = QPushButton(f"Search commands   {keys('Ctrl+K')}")
         search.setIcon(icons.icon("find"))
         search.setObjectName("paletteButton")
-        search.setToolTip("Find any command by name (Ctrl+K)")
+        search.setToolTip(f"Find any command by name ({keys('Ctrl+K')})")
         search.clicked.connect(self.show_palette)
         # Three columns with equal stretch keep the mode switch centered whatever the window width.
         grid.addWidget(QWidget(), 0, 0)
@@ -510,14 +518,14 @@ class MainWindow(QMainWindow):
         self.bold_btn = QToolButton()
         self.bold_btn.setText("B")
         self.bold_btn.setCheckable(True)
-        self.bold_btn.setToolTip("Bold (Ctrl+B)")
+        self.bold_btn.setToolTip(f"Bold ({keys('Ctrl+B')})")
         self.bold_btn.setShortcut(QKeySequence.Bold)
         self.bold_btn.setStyleSheet("font-weight: bold;")
         self.bold_btn.toggled.connect(lambda v: self._style("bold", v))
         self.italic_btn = QToolButton()
         self.italic_btn.setText("I")
         self.italic_btn.setCheckable(True)
-        self.italic_btn.setToolTip("Italic (Ctrl+I)")
+        self.italic_btn.setToolTip(f"Italic ({keys('Ctrl+I')})")
         self.italic_btn.setShortcut(QKeySequence.Italic)
         self.italic_btn.setStyleSheet("font-style: italic;")
         self.italic_btn.toggled.connect(lambda v: self._style("italic", v))
@@ -598,7 +606,7 @@ class MainWindow(QMainWindow):
         self.setStatusBar(sb)
         self.page_label = QPushButton("")
         self.page_label.setFlat(True)
-        self.page_label.setToolTip("Go to page (Ctrl+G)")
+        self.page_label.setToolTip(f"Go to page ({keys(GOTO_KEY)})")
         self.page_label.clicked.connect(self.goto_page)
         self.saved_label = QLabel("")
         local = QLabel("● Files stay on this PC")
@@ -606,7 +614,7 @@ class MainWindow(QMainWindow):
         local.setToolTip("Sheaf has no network code. Nothing you open or save is uploaded anywhere.")
         self.zoom_status = QPushButton("")
         self.zoom_status.setFlat(True)
-        self.zoom_status.setToolTip("Zoom. Click to type a level (Ctrl+wheel or pinch to zoom)")
+        self.zoom_status.setToolTip(f"Zoom. Click to type a level ({MOD}scroll or pinch to zoom)")
         self.zoom_status.clicked.connect(self.ask_zoom)
         sb.addWidget(self.page_label)
         sb.addWidget(self.zoom_status)

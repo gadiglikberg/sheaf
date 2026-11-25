@@ -8,6 +8,7 @@ Rules:
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -58,7 +59,10 @@ def same_file(a: str | os.PathLike | None, b: str | os.PathLike | None) -> bool:
 
 def app_data_dir() -> Path:
     """Per-user folder for signatures, settings and recovery copies. Never synced by Sheaf."""
-    base = os.environ.get("LOCALAPPDATA") or os.path.join(Path.home(), ".local", "share")
+    base = os.environ.get("LOCALAPPDATA")
+    if not base:
+        mac = Path.home() / "Library" / "Application Support"
+        base = str(mac) if sys.platform == "darwin" else os.path.join(Path.home(), ".local", "share")
     d = Path(base) / "Sheaf"
     d.mkdir(parents=True, exist_ok=True)
     return d

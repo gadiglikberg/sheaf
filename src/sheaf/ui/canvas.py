@@ -4,13 +4,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import pymupdf
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QCursor, QFont, QGuiApplication, QImage, QKeySequence, QPainter, QPainterPath,
                            QPen, QPixmap)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QInputDialog, QLineEdit, QMenu, QPlainTextEdit,
                                QScrollArea, QVBoxLayout, QWidget)
 
 from ..core import ops
+from ..osinfo import IS_MAC
 from ..core.document import SheafDocument
 
 MAX_RENDER_PIXELS = 60_000_000  # about 240 MB per page bitmap at most
@@ -378,6 +379,9 @@ class Canvas(QScrollArea):
         self._words: dict[int, list] = {}
         self._widgets: dict[int, list] = {}
         self.search_hits: list[tuple[int, pymupdf.Rect]] = []
+        self._pinch = 0.0
+        if IS_MAC:
+            QApplication.instance().installEventFilter(self)
         self.search_index = -1
         self.selection_page: int | None = None
         self.selection_words: list = []
@@ -478,8 +482,23 @@ class Canvas(QScrollArea):
             self.apply_zoom()
             QTimer.singleShot(0, lambda: self.go_to(page))
 
+    def _native_gesture(self, obj, e) -> bool:
+        # A Mac trackpad pinch arrives as a zoom gesture on the widget under the pointer (Windows sends a pinch
+        # as Ctrl+wheel instead). Small steps add up until they are worth one zoom step.
+        if not isinstance(obj, QWidget) or not (obj is self or self.isAncestorOf(obj)):
+            return False
+        if e.gestureType() == Qt.ZoomNativeGesture:
+            self._pinch += e.value()
+            if abs(self._pinch) >= 0.12:
+                self.zoom_step(1 if self._pinch > 0 else -1)
+                self._pinch = 0.0
+            return True
+        if e.gestureType() in (Qt.BeginNativeGesture, Qt.EndNativeGesture):
+            self._pinch = 0.0
+        return False
+
     def wheelEvent(self, e):
-        # Ctrl+wheel, and touchpad pinch (Windows sends it as Ctrl+wheel), zoom around the current page.
+        # Ctrl+wheel (Cmd+wheel on a Mac), and touchpad pinch on Windows, zoom around the current page.
         if e.modifiers() & Qt.ControlModifier:
             self.zoom_step(1 if e.angleDelta().y() > 0 else -1)
             e.accept()
@@ -961,6 +980,8 @@ class Canvas(QScrollArea):
         self.fill_widget(self.pages[i], w, toggle=False)
 
     def eventFilter(self, obj, e):
+        if e.type() == QEvent.NativeGesture:
+            return self._native_gesture(obj, e)
         if getattr(self, "editor", None) is None or obj is not self.editor:
             return super().eventFilter(obj, e)
         if e.type() == e.Type.KeyPress:

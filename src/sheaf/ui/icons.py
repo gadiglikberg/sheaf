@@ -1,7 +1,10 @@
-"""Toolbar icons drawn from the icon font built into Windows (Segoe Fluent Icons, or Segoe MDL2 Assets on
-Windows 10). Nothing is bundled or downloaded. The glyphs are painted with the current palette, so they follow
-light and dark themes. Where neither font exists, icons are empty and buttons show their text."""
+"""Toolbar icons from the system itself, so nothing is bundled or downloaded. On Windows they are drawn from the
+icon font built into Windows (Segoe Fluent Icons, or Segoe MDL2 Assets on Windows 10) with the current palette, so
+they follow light and dark themes. On a Mac they are Apple's SF Symbols, which Qt draws natively. Where neither is
+available, icons are empty and buttons show their text."""
 from __future__ import annotations
+
+import sys
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QIconEngine, QPainter, QPalette, QPixmap
@@ -17,6 +20,20 @@ GLYPHS = {
     "lock": 0xE72E, "unlock": 0xE785, "apply": 0xE73E, "save": 0xE74E, "open": 0xE8E5,
 }
 MIRRORED = {"rotate_left"}
+
+# SF Symbols names (macOS 11 or later) for the same icons.
+SF_SYMBOLS = {
+    "select": "cursorarrow", "text": "textformat", "edit_text": "pencil", "fill": "rectangle.and.pencil.and.ellipsis",
+    "highlight": "highlighter", "underline": "underline", "strikeout": "strikethrough", "note": "note.text",
+    "rect": "rectangle", "arrow": "arrow.up.right", "ink": "scribble", "sign": "signature", "check": "checkmark",
+    "cross": "xmark", "date": "calendar", "initials": "textformat.abc", "redact": "eye.slash",
+    "zoom_in": "plus.magnifyingglass", "zoom_out": "minus.magnifyingglass", "fit_width": "arrow.left.and.right",
+    "fit_page": "arrow.up.and.down.and.arrow.left.and.right", "find": "magnifyingglass", "print": "printer",
+    "comments": "text.bubble", "insert": "doc.badge.plus", "blank": "doc", "rotate_left": "rotate.left",
+    "rotate_right": "rotate.right", "delete": "trash", "extract": "square.and.arrow.up", "split": "scissors",
+    "more": "ellipsis", "lock": "lock", "unlock": "lock.open", "apply": "checkmark", "save": "square.and.arrow.down",
+    "open": "folder",
+}
 
 
 def icon_font() -> str | None:
@@ -66,6 +83,9 @@ class GlyphEngine(QIconEngine):
 
 
 def icon(name: str) -> QIcon:
+    if sys.platform == "darwin":
+        ic = QIcon.fromTheme(SF_SYMBOLS[name]) if name in SF_SYMBOLS else QIcon()
+        return QIcon() if ic.isNull() else ic
     family = icon_font()
     if family is None or name not in GLYPHS:
         return QIcon()
