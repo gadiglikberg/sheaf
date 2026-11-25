@@ -1,46 +1,87 @@
 name: Release
 
-# A tag like v1.1.0 builds Sheaf for Windows and Mac, runs every check on each system, and publishes a GitHub
-# release with:
+# Builds Sheaf for Windows and Mac, runs every check on each system, and publishes a GitHub release with:
 #   Sheaf-Setup.exe                 Windows installer
 #   Sheaf-windows.zip               Windows, portable
 #   Sheaf-mac.dmg                   Mac with Apple silicon (M-series), macOS 14 or later
 #   SHA256SUMS.txt
-# Running it by hand ("Run workflow") builds the same files as a downloadable artifact without publishing anything.
+#
+# Three ways to run it:
+#   - Actions → Release → Run workflow, "Publish" ticked, on main: publishes the next patch version
+#     (1.1.0 → 1.1.1), for example after dependency updates. If src/sheaf/__init__.py already names a newer
+#     version than the last release, that version is used instead.
+#   - Pushing a tag such as v1.2.0 (must match src/sheaf/__init__.py): publishes that version.
+#   - Run workflow without "Publish": builds the files as a downloadable artifact only.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a new release (from main)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.v.outputs.value }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: v
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          src=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/sheaf/__init__.py)
+          if [ "$REF_TYPE" = tag ]; then
+            [ "$REF_NAME" = "v$src" ] || { echo "Tag $REF_NAME does not match the app version $src"; exit 1; }
+            v=$src; publish=true
+          elif [ "$PUBLISH" = true ]; then
+            [ "$REF_NAME" = main ] || { echo "Releases are published from main only"; exit 1; }
+            last=$(git tag --list 'v*' --sort=-v:refname | head -1); last=${last#v}
+            newest=$(printf '%s\n%s\n' "$src" "$last" | sort -V | tail -1)
+            if [ "$newest" = "$src" ] && [ "$src" != "$last" ]; then
+              v=$src
+            else
+              IFS=. read -r major minor patch <<< "$last"; v="$major.$minor.$((patch + 1))"
+            fi
+            publish=true
+          else
+            v=$src; publish=false
+          fi
+          echo "Version $v, publish: $publish"
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
   windows:
+    needs: version
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Stamp version
+        run: python tools/set_version.py ${{ needs.version.outputs.value }}
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -c requirements.txt -e ".[dev]"
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
           python tools/check_no_network.py
           python -m bandit -q -r src
+          python -m pip_audit --skip-editable
           python -m pytest -q
-      - name: Version
-        id: version
-        shell: pwsh
-        run: |
-          $v = python -c "import sheaf; print(sheaf.__version__)"
-          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$v") {
-            throw "Tag ${{ github.ref_name }} does not match the app version $v"
-          }
-          "value=$v" >> $env:GITHUB_OUTPUT
       - name: Build app
         run: python -m PyInstaller --noconfirm --windowed --name Sheaf --icon assets/sheaf.ico --paths src tools/launcher.py
       - name: Build installer
@@ -48,14 +89,14 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
-          & $iscc /Qp "/DAppVersion=${{ steps.version.outputs.value }}" installer\sheaf.iss
+          & $iscc /Qp "/DAppVersion=${{ needs.version.outputs.value }}" installer\sheaf.iss
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Portable zip
         shell: pwsh
         run: |
           Copy-Item LICENSE, README.md dist/Sheaf/
           Compress-Archive -Path dist/Sheaf -DestinationPath dist/Sheaf-windows.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: |
@@ -65,27 +106,25 @@ jobs:
 
   mac:
     # Apple silicon only: PyMuPDF 2 no longer publishes Intel Mac builds.
+    needs: version
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Stamp version
+        run: python tools/set_version.py ${{ needs.version.outputs.value }}
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -c requirements.txt -e ".[dev]"
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
           python tools/check_no_network.py
           python -m bandit -q -r src
+          python -m pip_audit --skip-editable
           python -m pytest -q
-      - name: Version
-        run: |
-          v=$(python -c "import sheaf; print(sheaf.__version__)")
-          if [ "${{ github.ref_type }}" = "tag" ] && [ "${{ github.ref_name }}" != "v$v" ]; then
-            echo "Tag ${{ github.ref_name }} does not match the app version $v"; exit 1
-          fi
       - name: Icon
         env:
           QT_QPA_PLATFORM: offscreen
@@ -100,7 +139,7 @@ jobs:
           codesign --force --deep --sign - dist/Sheaf.app
           codesign --verify --deep --strict --verbose=2 dist/Sheaf.app
       - name: Smoke test
-        # Start the real app in the runner's desktop session and check it stays up.
+        # Start the real app in the runner's desktop session with a PDF and check it stays up.
         run: |
           python -c "import pymupdf; d = pymupdf.open(); d.new_page().insert_text((72, 100), 'Sheaf smoke test'); d.save('build/sample.pdf')"
           dist/Sheaf.app/Contents/MacOS/Sheaf build/sample.pdf &
@@ -115,27 +154,27 @@ jobs:
           ditto dist/Sheaf.app build/dmg/Sheaf.app
           ln -s /Applications build/dmg/Applications
           hdiutil create -volname Sheaf -srcfolder build/dmg -ov -format UDZO dist/Sheaf-mac.dmg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mac
           path: dist/Sheaf-mac.dmg
           if-no-files-found: error
       - name: Keep screenshot (manual runs)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: screenshot-mac
           path: build/screenshot-mac.png
           if-no-files-found: ignore
 
   release:
-    needs: [windows, mac]
+    needs: [version, windows, mac]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: "{windows,mac}"
@@ -145,17 +184,17 @@ jobs:
           cd dist
           sha256sum Sheaf-Setup.exe Sheaf-windows.zip Sheaf-mac.dmg > SHA256SUMS.txt
           cat SHA256SUMS.txt
-      - name: Keep build (manual runs)
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+      - name: Keep build (test runs)
+        if: needs.version.outputs.publish != 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: Sheaf-all
           path: dist/*
       - name: Publish release
-        if: github.ref_type == 'tag'
+        if: needs.version.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.version.outputs.value }}
         run: >-
-          gh release create "${{ github.ref_name }}" dist/Sheaf-Setup.exe dist/Sheaf-windows.zip
-          dist/Sheaf-mac.dmg dist/SHA256SUMS.txt
-          --title "Sheaf ${{ github.ref_name }}" --notes-file .github/release-notes.md
+          gh release create "v$V" dist/Sheaf-Setup.exe dist/Sheaf-windows.zip dist/Sheaf-mac.dmg dist/SHA256SUMS.txt
+          --target "$GITHUB_SHA" --title "Sheaf v$V" --notes-file .github/release-notes.md

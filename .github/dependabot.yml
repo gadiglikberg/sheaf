@@ -1,10 +1,23 @@
 version: 2
 updates:
+  # The pinned versions in requirements.txt. A new version is proposed only once it is 7 days old, so a hijacked
+  # release is likely to be caught upstream first. Security fixes are proposed straight away.
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
+    versioning-strategy: increase-if-necessary
+    cooldown:
+      default-days: 7
+    groups:
+      build-and-test-tools:
+        patterns: ["pytest*", "bandit", "pip-audit", "pyinstaller*"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
