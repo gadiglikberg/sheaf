@@ -102,7 +102,8 @@ jobs:
       - name: Smoke test
         # Start the real app in the runner's desktop session and check it stays up.
         run: |
-          dist/Sheaf.app/Contents/MacOS/Sheaf &
+          python -c "import pymupdf; d = pymupdf.open(); d.new_page().insert_text((72, 100), 'Sheaf smoke test'); d.save('build/sample.pdf')"
+          dist/Sheaf.app/Contents/MacOS/Sheaf build/sample.pdf &
           pid=$!
           sleep 15
           screencapture -x build/screenshot-mac.png || true

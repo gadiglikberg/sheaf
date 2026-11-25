@@ -609,7 +609,7 @@ class MainWindow(QMainWindow):
         self.page_label.setToolTip(f"Go to page ({keys(GOTO_KEY)})")
         self.page_label.clicked.connect(self.goto_page)
         self.saved_label = QLabel("")
-        local = QLabel("● Files stay on this PC")
+        local = QLabel("● Files stay on this computer")
         local.setObjectName("localBadge")
         local.setToolTip("Sheaf has no network code. Nothing you open or save is uploaded anywhere.")
         self.zoom_status = QPushButton("")

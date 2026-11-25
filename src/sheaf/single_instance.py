@@ -1,9 +1,10 @@
 """One Sheaf window: a second launch (for example "Open with Sheaf" in Explorer) hands its files to the window
 that is already open, then exits.
 
-The hand-over uses a Windows named pipe through Qt's QLocalServer and QLocalSocket. These connect programs on the
-same computer only and cannot reach the network. The pipe accepts the current Windows user only, messages are size
-limited, and the running window only opens paths that exist as files.
+The hand-over uses Qt's QLocalServer and QLocalSocket: a named pipe on Windows, a local socket file on a Mac. These
+connect programs on the same computer only and cannot reach the network. They accept the current user only,
+messages are size limited, and the running window only opens paths that exist as files. (On a Mac, Finder itself
+sends files to the running app, so this mostly matters on Windows.)
 """
 from __future__ import annotations
 
