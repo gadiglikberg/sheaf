@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, Q
                                QStackedWidget, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from ..core import fileio, ops
+from ..osinfo import IS_MAC, keys
 from ..core.document import OpenCancelled, OpenFailed, SheafDocument
 from . import dialogs
 from .canvas import Canvas, ToolState
@@ -37,8 +38,8 @@ class SearchPanel(QWidget):
         prev_b, next_b = QToolButton(), QToolButton()
         prev_b.setText("↑")
         next_b.setText("↓")
-        prev_b.setToolTip("Previous match (Shift+F3)")
-        next_b.setToolTip("Next match (F3)")
+        prev_b.setToolTip(f"Previous match ({keys('Shift+F3')})")
+        next_b.setToolTip(f"Next match ({keys('F3')})")
         prev_b.clicked.connect(lambda: self.step(-1))
         next_b.clicked.connect(lambda: self.step(1))
         row.addWidget(self.count, 1)
@@ -289,7 +290,7 @@ class DocumentTab(QWidget):
         except ValueError as e:
             QMessageBox.warning(self, "Sheaf", str(e))
             return
-        self.message.emit(f"Deleted {len(pages)} page{'s' if len(pages) > 1 else ''}. Ctrl+Z brings "
+        self.message.emit(f"Deleted {len(pages)} page{'s' if len(pages) > 1 else ''}. {keys('Ctrl+Z')} brings "
                           f"{'them' if len(pages) > 1 else 'it'} back.")
 
     def move_pages(self, pages: list[int], to: int):
@@ -392,7 +393,7 @@ class DocumentTab(QWidget):
             f"{dialogs.human_size(before)} → {dialogs.human_size(after)}"
             + (f"  ({saved * 100 // max(before, 1)}% smaller)" if saved else
                "\n\nThis file was already as small as it can get at this setting.")
-            + "\n\nSave the document to keep the smaller file. Ctrl+Z undoes it.")
+            + f"\n\nSave the document to keep the smaller file. {keys('Ctrl+Z')} undoes it.")
 
     def ocr(self):
         langs = ops.ocr_languages()
@@ -400,8 +401,9 @@ class DocumentTab(QWidget):
             QMessageBox.information(
                 self, "Recognize text",
                 "Text recognition needs the free Tesseract OCR engine installed on this computer.\n\n"
-                "Install it from the official Tesseract project, then try again. Sheaf still works offline: "
-                "recognition runs entirely on your PC.")
+                + ("Install it with Homebrew (brew install tesseract), then try again. " if IS_MAC else
+                   "Install it from the official Tesseract project, then try again. ")
+                + "Sheaf still works offline: recognition runs entirely on this computer.")
             return
         scanned = [p.number for p in self.sdoc.doc if ops.page_needs_ocr(p)]
         if not scanned:

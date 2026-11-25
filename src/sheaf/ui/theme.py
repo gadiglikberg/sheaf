@@ -1,4 +1,4 @@
-"""Native Windows 11 look with light and dark themes that follow Windows."""
+"""Native look with light and dark themes that follow the system (Windows or macOS)."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
