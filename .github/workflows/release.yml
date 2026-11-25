@@ -55,7 +55,7 @@ jobs:
         run: |
           Copy-Item LICENSE, README.md dist/Sheaf/
           Compress-Archive -Path dist/Sheaf -DestinationPath dist/Sheaf-windows.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: |
@@ -115,14 +115,14 @@ jobs:
           ditto dist/Sheaf.app build/dmg/Sheaf.app
           ln -s /Applications build/dmg/Applications
           hdiutil create -volname Sheaf -srcfolder build/dmg -ov -format UDZO dist/Sheaf-mac.dmg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mac
           path: dist/Sheaf-mac.dmg
           if-no-files-found: error
       - name: Keep screenshot (manual runs)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: screenshot-mac
           path: build/screenshot-mac.png
@@ -147,7 +147,7 @@ jobs:
           cat SHA256SUMS.txt
       - name: Keep build (manual runs)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Sheaf-all
           path: dist/*
