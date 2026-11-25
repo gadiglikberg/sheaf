@@ -1,6 +1,6 @@
 # Sheaf
 
-**A simple, private PDF editor for Windows. Files never leave your computer.**
+**A simple, private PDF editor for Windows and Mac. Files never leave your computer.**
 
 Sheaf does the everyday PDF jobs in one calm window: read, copy text, combine, reorder, rotate,
 delete and extract pages, add text, fill and sign forms, highlight and comment, redact, compress,
@@ -26,6 +26,8 @@ original file unless you explicitly choose to.
 
 ## Install
 
+### Windows
+
 **[Download Sheaf-Setup.exe](https://github.com/gadiglikberg/sheaf/releases/latest/download/Sheaf-Setup.exe)** and run it.
 It installs for your Windows account only (no administrator password), adds Sheaf to the Start menu and to
 **Open with** for PDF files, and can be uninstalled from **Settings → Apps**. A portable `Sheaf-windows.zip` is on
@@ -34,7 +36,19 @@ the [Releases](https://github.com/gadiglikberg/sheaf/releases) page too.
 Releases aren't code-signed yet, so Windows may say "Windows protected your PC" the first time: click
 **More info → Run anyway**. Each release lists SHA-256 checksums so you can verify the download.
 
-**From source** (Python 3.10 or newer):
+### Mac
+
+**[Download Sheaf-mac.dmg](https://github.com/gadiglikberg/sheaf/releases/latest/download/Sheaf-mac.dmg)**, open it
+and drag Sheaf onto Applications. Sheaf then appears under **Open With** for PDFs in Finder. It needs a Mac with Apple
+silicon (M1 or later) and macOS 14 Sonoma or later. Intel Macs aren't supported, because the PDF engine Sheaf is
+built on no longer ships for them.
+
+Sheaf isn't notarized by Apple, which needs a paid developer account, so the first launch shows "Apple could not
+verify Sheaf". Click **Done**, then **System Settings → Privacy & Security → Open Anyway**. This is needed only once.
+
+### From source
+
+Python 3.10 or newer:
 
 ```bash
 git clone https://github.com/gadiglikberg/sheaf.git
@@ -44,7 +58,7 @@ sheaf
 ```
 
 Text recognition (OCR) is optional and needs the free [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
-engine installed. Recognition runs on your computer.
+engine installed (on a Mac: `brew install tesseract`). Recognition runs on your computer.
 
 ## Keyboard shortcuts
 
@@ -59,15 +73,17 @@ engine installed. Recognition runs on your computer.
 | Modes: View, Edit, Annotate, Fill & Sign, Organize, Protect | Ctrl+3 to Ctrl+8 |
 | Tools: Select, Text, Edit text, Highlight, Note, Draw | V, T, E, H, N, D |
 
-Press F1 in the app for the full list.
+On a Mac, use ⌘ in place of Ctrl. The exceptions: find next is ⌘G, go to page is ⌥⌘G, and switching documents
+is Control+Tab. Press F1 (fn+F1) in the app for the full list.
 
 ## Privacy
 
 - Sheaf contains no networking code. A check in CI (`tools/check_no_network.py`) fails the build if
   any network or process-launching module is ever imported.
 - PDF JavaScript is never run, and links inside PDFs are never followed.
-- Saved signatures, settings and recovery copies stay in your Windows user profile. Recovery copies
-  of password-protected files stay encrypted.
+- Saved signatures, settings and recovery copies stay in your user folder (on Windows under
+  `%LOCALAPPDATA%\Sheaf`, on a Mac under `~/Library/Application Support/Sheaf`). Recovery copies of
+  password-protected files stay encrypted.
 
 ## Development
 
@@ -84,7 +100,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Usability and security reviews are in [d
 
 Release files are built only by the [Release workflow](.github/workflows/release.yml) on GitHub Actions, from a
 tagged commit on `main`, after the tests, the static security scan and the no-network check pass. Nothing is built
-or uploaded from a personal computer.
+or uploaded from a personal computer. Mac apps carry an ad hoc signature only; they are not notarized by Apple.
 
 | Role | Members |
 | --- | --- |

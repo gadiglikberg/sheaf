@@ -24,6 +24,7 @@ app = BUNDLE(
         "CFBundleVersion": VERSION,
         "NSHumanReadableCopyright": "AGPL-3.0-or-later",
         "NSHighResolutionCapable": True,
+        "LSMinimumSystemVersion": "14.0",  # what PySide6 (Qt 6.12) supports
         "LSApplicationCategoryType": "public.app-category.productivity",
         # Offer Sheaf under "Open With" for PDFs without taking over the default PDF app.
         "CFBundleDocumentTypes": [{

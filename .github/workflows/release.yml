@@ -4,8 +4,7 @@ name: Release
 # release with:
 #   Sheaf-Setup.exe                 Windows installer
 #   Sheaf-windows.zip               Windows, portable
-#   Sheaf-mac-apple-silicon.dmg     Mac with an Apple M-series chip
-#   Sheaf-mac-intel.dmg             Mac with an Intel processor
+#   Sheaf-mac.dmg                   Mac with Apple silicon (M-series), macOS 14 or later
 #   SHA256SUMS.txt
 # Running it by hand ("Run workflow") builds the same files as a downloadable artifact without publishing anything.
 on:
@@ -65,14 +64,8 @@ jobs:
           if-no-files-found: error
 
   mac:
-    strategy:
-      matrix:
-        include:
-          - runner: macos-15
-            name: apple-silicon
-          - runner: macos-15-intel
-            name: intel
-    runs-on: ${{ matrix.runner }}
+    # Apple silicon only: PyMuPDF 2 no longer publishes Intel Mac builds.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -112,7 +105,7 @@ jobs:
           dist/Sheaf.app/Contents/MacOS/Sheaf &
           pid=$!
           sleep 15
-          screencapture -x build/screenshot-${{ matrix.name }}.png || true
+          screencapture -x build/screenshot-mac.png || true
           kill -0 $pid
           kill $pid
       - name: Disk image
@@ -120,18 +113,18 @@ jobs:
           mkdir -p build/dmg
           ditto dist/Sheaf.app build/dmg/Sheaf.app
           ln -s /Applications build/dmg/Applications
-          hdiutil create -volname Sheaf -srcfolder build/dmg -ov -format UDZO dist/Sheaf-mac-${{ matrix.name }}.dmg
+          hdiutil create -volname Sheaf -srcfolder build/dmg -ov -format UDZO dist/Sheaf-mac.dmg
       - uses: actions/upload-artifact@v4
         with:
-          name: mac-${{ matrix.name }}
-          path: dist/Sheaf-mac-${{ matrix.name }}.dmg
+          name: mac
+          path: dist/Sheaf-mac.dmg
           if-no-files-found: error
       - name: Keep screenshot (manual runs)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: screenshot-${{ matrix.name }}
-          path: build/screenshot-${{ matrix.name }}.png
+          name: screenshot-mac
+          path: build/screenshot-mac.png
           if-no-files-found: ignore
 
   release:
@@ -144,12 +137,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: "{windows,mac-*}"
+          pattern: "{windows,mac}"
           merge-multiple: true
       - name: Checksums
         run: |
           cd dist
-          sha256sum Sheaf-Setup.exe Sheaf-windows.zip Sheaf-mac-apple-silicon.dmg Sheaf-mac-intel.dmg > SHA256SUMS.txt
+          sha256sum Sheaf-Setup.exe Sheaf-windows.zip Sheaf-mac.dmg > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - name: Keep build (manual runs)
         if: github.event_name == 'workflow_dispatch'
@@ -163,5 +156,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "${{ github.ref_name }}" dist/Sheaf-Setup.exe dist/Sheaf-windows.zip
-          dist/Sheaf-mac-apple-silicon.dmg dist/Sheaf-mac-intel.dmg dist/SHA256SUMS.txt
+          dist/Sheaf-mac.dmg dist/SHA256SUMS.txt
           --title "Sheaf ${{ github.ref_name }}" --notes-file .github/release-notes.md
